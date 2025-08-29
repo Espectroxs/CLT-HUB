@@ -1,4 +1,4 @@
-local whitelistedPlayers = {"ESP19X", "RIP_subi03", "XxIMP_ESPECTROxX", "theexal0455"}
+local whitelistedPlayers = {"ESP19X", "RIP_subi03", "XxIMP_ESPECTROxX", "Amigo2"}
 
 local player = game.Players.LocalPlayer
 
@@ -22,5 +22,6 @@ end
 
 
 loadstring(game:HttpGet("https://raw.githubusercontent.com/Espectroxs/CLT-HUB/refs/heads/main/ESPECTRAL.lua"))()
+
 
 
