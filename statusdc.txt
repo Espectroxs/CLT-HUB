@@ -1,0 +1,64 @@
+local HttpService = game:GetService("HttpService")
+local webhookURL = "https://discord.com/api/webhooks/1414408207417212988/Uf2N1ajGSAAt7XrSfMWDVWnelIC-sNIRI-hULFDUuo4RD6LXy2G6edJkjTwpZyZ-TR3e"
+
+local request = (syn and syn.request) or (http and http.request) or (http_request)
+
+-- Função para formatar número
+local function formatNumber(n)
+    if n >= 1e12 then return string.format("%.2fT", n/1e12)
+    elseif n >= 1e9 then return string.format("%.2fB", n/1e9)
+    elseif n >= 1e6 then return string.format("%.2fM", n/1e6)
+    elseif n >= 1e3 then return string.format("%.2fK", n/1e3)
+    else return tostring(n)
+    end
+end
+
+-- Captura stats do player
+local function getStats()
+    local player = game.Players.LocalPlayer
+    local statsFolder = player:FindFirstChild("leaderstats") or player
+
+    return {
+        Strength = statsFolder:FindFirstChild("Strength") and statsFolder.Strength.Value or 0,
+        Durability = statsFolder:FindFirstChild("Durability") and statsFolder.Durability.Value or 0,
+        Agility = statsFolder:FindFirstChild("Agility") and statsFolder.Agility.Value or 0,
+        Rebirths = statsFolder:FindFirstChild("Rebirths") and statsFolder.Rebirths.Value or 0,
+        Kills = statsFolder:FindFirstChild("Kills") and statsFolder.Kills.Value or 0,
+        Brawls = statsFolder:FindFirstChild("Brawls") and statsFolder.Brawls.Value or 0,
+    }
+end
+
+-- Envia stats pro Discord
+local function sendToDiscord(stats)
+    local embed = {
+        ["username"] = "Espectral HUB - Stats Roblox",
+        ["embeds"] = {{
+            ["title"] = "📊 Status do Jogador",
+            ["description"] = "**Jogador:** " .. game.Players.LocalPlayer.Name,
+            ["color"] = tonumber("0x3498db"),
+            ["fields"] = {
+                {name = "💪 Strength", value = formatNumber(stats.Strength) .. " (" .. stats.Strength .. ")", inline = true},
+                {name = "🛡️ Durability", value = formatNumber(stats.Durability) .. " (" .. stats.Durability .. ")", inline = true},
+                {name = "🏃 Agility", value = formatNumber(stats.Agility) .. " (" .. stats.Agility .. ")", inline = true},
+                {name = "♻️ Rebirths", value = formatNumber(stats.Rebirths) .. " (" .. stats.Rebirths .. ")", inline = true},
+                {name = "☠️ Kills", value = formatNumber(stats.Kills) .. " (" .. stats.Kills .. ")", inline = true},
+                {name = "🥊 Brawls", value = formatNumber(stats.Brawls) .. " (" .. stats.Brawls .. ")", inline = true},
+            },
+            ["footer"] = {text = "Atualizado em tempo real ⏳"},
+            ["timestamp"] = os.date("!%Y-%m-%dT%H:%M:%SZ")
+        }}
+    }
+
+    request({
+        Url = webhookURL,
+        Method = "POST",
+        Headers = {["Content-Type"] = "application/json"},
+        Body = HttpService:JSONEncode(embed)
+    })
+end
+
+-- Loop de envio
+while wait(3600) do
+    local stats = getStats()
+    sendToDiscord(stats)
+end
