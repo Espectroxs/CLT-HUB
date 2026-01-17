@@ -1,27 +1,22 @@
--- ESPECTROXS UI Library (from-scratch, tabs on both sides, creator footer)
--- Created for: Espectroxs
--- Description:
---   A lightweight GUI library inspired by the provided library.
---   Layout differences:
---     - Vertical tabs on both left and right sides
---     - Central content area for tab contents
---     - Footer at the bottom showing creator name "ESPECTROXS"
---   API (example usages at bottom):
---     local lib = require(path_to_this_file)
---     local win = lib:AddWindow("My Window", {main_color = Color3.fromRGB(41,74,122), min_size=Vector2.new(400,300)})
---     local leftTab = win:AddTab("Left", "Settings")
---     leftTab:AddLabel("Hello")
---     leftTab:AddButton("Click me", function() print("clicked") end)
---     local rightTab = win:AddTab("Right", "About")
---     rightTab:AddLabel("About content")
---
--- Note: built for Roblox environment. Tested with typical Instance APIs.
+-- ESPECTROXS UI Library (updated)
+-- Usage: Place this ModuleScript in ReplicatedStorage (or host it remotely and loadstring it),
+-- and require it from a LocalScript running on the client (StarterPlayerScripts / StarterGui).
+-- Example:
+-- local Library = require(path_to_this_module)
+-- local winData, winGui = Library:AddWindow("Title", { main_color = Color3.fromRGB(41,74,122) })
+-- local leftTab, leftFrame = winData:AddTab("Left", "Farm")
+-- leftTab:AddButton("Start", function() print("start") end)
+-- Features:
+-- - Tabs on left and right sides (call AddTab("Left", name) or AddTab("Right", name"))
+-- - Minimize / restore toggle in title bar
+-- - Resizable (client-side) with minimum size
+-- - Common UI components: AddLabel, AddButton, AddSwitch, AddSlider, AddDropdown, AddColorPicker, AddKeybind
+-- - Parent ScreenGui to PlayerGui (safe for LocalScript)
 
-local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
 local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 
 local DEFAULTS = {
 	main_color = Color3.fromRGB(41, 74, 122),
@@ -31,26 +26,46 @@ local DEFAULTS = {
 	tween_time = 0.12,
 }
 
--- destroy old gui if present
-do
-	local old = game:GetService("CoreGui"):FindFirstChild("ESPECTROXS_imgui")
-	if old then old:Destroy() end
+local function clamp255(n)
+	n = tonumber(n) or 0
+	if n < 0 then return 0 end
+	if n > 255 then return 255 end
+	return n
 end
 
-local screen = Instance.new("ScreenGui")
-screen.Name = "ESPECTROXS_imgui"
-screen.ResetOnSpawn = false
-screen.Parent = game:GetService("CoreGui")
+local function normalize_color(c)
+	if typeof(c) == "Color3" then return c end
+	if type(c) == "table" and #c >= 3 then
+		return Color3.fromRGB(clamp255(c[1]), clamp255(c[2]), clamp255(c[3]))
+	end
+	return DEFAULTS.main_color
+end
 
--- root window holder
-local Windows = Instance.new("Frame")
-Windows.Name = "Windows"
-Windows.BackgroundTransparency = 1
-Windows.Size = UDim2.new(1, 0, 1, 0)
-Windows.Position = UDim2.new(0, 0, 0, 0)
-Windows.Parent = screen
+-- Ensure LocalPlayer / PlayerGui (Module should be required from a client LocalScript)
+local LocalPlayer = Players.LocalPlayer
+if not LocalPlayer then
+	-- try waiting (in case required too early); this will only work if required in a context that can wait
+	repeat
+		Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+		LocalPlayer = Players.LocalPlayer
+	until LocalPlayer
+end
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- helper tween
+-- Destroy any older GUI with same name
+local EXISTING = PlayerGui:FindFirstChild("ESPECTROXS_imgui")
+if EXISTING then
+	EXISTING:Destroy()
+end
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "ESPECTROXS_imgui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = PlayerGui
+
+local library = {}
+local windowsCount = 0
+
 local function tween(inst, props, t)
 	t = t or DEFAULTS.tween_time
 	local info = TweenService:Create(inst, TweenInfo.new(t, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props)
@@ -58,270 +73,319 @@ local function tween(inst, props, t)
 	return info
 end
 
--- convenience: create UI instances
 local function new(class, props)
-	local i = Instance.new(class)
+	local inst = Instance.new(class)
 	if props then
 		for k, v in pairs(props) do
-			i[k] = v
+			-- protected assignment for read-only properties
+			pcall(function() inst[k] = v end)
 		end
 	end
-	return i
+	return inst
 end
 
--- main library table
-local library = {}
-local windowsCount = 0
+-- Toggle GUI visibility with key
+do
+	local visible = true
+	UserInputService.InputBegan:Connect(function(input, gp)
+		if gp then return end
+		if input.KeyCode == DEFAULTS.toggle_key then
+			visible = not visible
+			screenGui.Enabled = visible
+		end
+	end)
+end
 
--- toggle visibility via key
-local toggled = true
-UserInputService.InputBegan:Connect(function(inp, gp)
-	if inp.KeyCode == (DEFAULTS.toggle_key or Enum.KeyCode.RightShift) and not gp then
-		toggled = not toggled
-		screen.Enabled = toggled
-	end
-end)
-
--- function: AddWindow
 function library:AddWindow(title, options)
+	title = tostring(title or "New Window")
 	options = (type(options) == "table") and options or {}
-	for k,v in pairs(DEFAULTS) do
-		if options[k] == nil then options[k] = v end
+	local opts = {}
+	for k, v in pairs(DEFAULTS) do
+		opts[k] = (options[k] ~= nil) and options[k] or v
 	end
-
+	opts.main_color = normalize_color(opts.main_color)
 	windowsCount = windowsCount + 1
-	local winZ = 5 + windowsCount * 5
+	local zIndexBase = 10 + windowsCount * 10
 
-	-- Window frame
+	-- Window root
 	local Window = new("Frame", {
-		Name = "Window_"..windowsCount;
-		Parent = Windows;
-		BackgroundColor3 = Color3.fromRGB(25,25,25);
-		Size = UDim2.new(0, options.min_size.X, 0, options.min_size.Y);
-		Position = UDim2.new(0.2, 0, 0.15, 0);
-		BorderSizePixel = 0;
-		ZIndex = winZ;
+		Name = "ESPECTROXS_Window_" .. tostring(windowsCount),
+		Parent = screenGui,
+		BackgroundColor3 = Color3.fromRGB(30, 30, 30),
+		BorderSizePixel = 0,
+		Size = UDim2.new(0, opts.min_size.X, 0, opts.min_size.Y),
+		Position = UDim2.new(0.25, 0, 0.15, 0),
+		ZIndex = zIndexBase,
 	})
-	local UICorner = new("UICorner", {Parent = Window, CornerRadius = UDim.new(0,6)})
-	local TitleBar = new("Frame", {Parent = Window, BackgroundColor3 = options.main_color, Size = UDim2.new(1,0,0,28), Position = UDim2.new(0,0,0,0), BorderSizePixel = 0, ZIndex = winZ+1})
-	new("UICorner", {Parent = TitleBar, CornerRadius = UDim.new(0,6)})
+	new("UICorner", { Parent = Window, CornerRadius = UDim.new(0, 8) })
+
+	-- Title bar
+	local TitleBar = new("Frame", {
+		Parent = Window,
+		BackgroundColor3 = opts.main_color,
+		Size = UDim2.new(1, 0, 0, 28),
+		Position = UDim2.new(0, 0, 0, 0),
+		ZIndex = zIndexBase + 1,
+	})
+	new("UICorner", { Parent = TitleBar, CornerRadius = UDim.new(0, 8) })
 	local TitleLabel = new("TextLabel", {
-		Parent = TitleBar;
-		Text = tostring(title or "Window");
-		Font = Enum.Font.GothamBold;
-		TextSize = 14;
-		TextColor3 = Color3.new(1,1,1);
-		BackgroundTransparency = 1;
-		Size = UDim2.new(1, -10, 1, 0);
-		Position = UDim2.new(0,8,0,0);
-		TextXAlignment = Enum.TextXAlignment.Left;
-		ZIndex = winZ+2;
+		Parent = TitleBar,
+		BackgroundTransparency = 1,
+		Text = title,
+		Font = Enum.Font.GothamBold,
+		TextSize = 14,
+		TextColor3 = Color3.new(1, 1, 1),
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Position = UDim2.new(0, 10, 0, 0),
+		Size = UDim2.new(1, -80, 1, 0),
+		ZIndex = zIndexBase + 2,
 	})
 
-	-- left tabs container
+	-- Minimize toggle button
+	local MinimizeBtn = new("TextButton", {
+		Parent = TitleBar,
+		BackgroundTransparency = 1,
+		Text = "-",
+		Font = Enum.Font.GothamBold,
+		TextSize = 20,
+		TextColor3 = Color3.new(1, 1, 1),
+		Size = UDim2.new(0, 28, 0, 28),
+		Position = UDim2.new(1, -34, 0, 0),
+		ZIndex = zIndexBase + 3,
+	})
+	MinimizeBtn.MouseEnter:Connect(function() MinimizeBtn.TextColor3 = Color3.new(0.9,0.9,0.9) end)
+	MinimizeBtn.MouseLeave:Connect(function() MinimizeBtn.TextColor3 = Color3.new(1,1,1) end)
+
+	-- Close button (optional small X)
+	local CloseBtn = new("TextButton", {
+		Parent = TitleBar,
+		BackgroundTransparency = 1,
+		Text = "×",
+		Font = Enum.Font.GothamBold,
+		TextSize = 18,
+		TextColor3 = Color3.new(1, 1, 1),
+		Size = UDim2.new(0, 28, 0, 28),
+		Position = UDim2.new(1, -60, 0, 0),
+		ZIndex = zIndexBase + 3,
+	})
+	CloseBtn.MouseButton1Click:Connect(function()
+		Window:Destroy()
+	end)
+
+	-- Left and Right Tabs containers
 	local LeftTabs = new("Frame", {
-		Parent = Window;
-		Name = "LeftTabs";
-		BackgroundTransparency = 1;
-		Size = UDim2.new(0, 110, 1, -60);
-		Position = UDim2.new(0, 8, 0, 36);
-		ZIndex = winZ+1;
+		Parent = Window,
+		BackgroundTransparency = 1,
+		Size = UDim2.new(0, 120, 1, -70),
+		Position = UDim2.new(0, 10, 0, 36),
+		ZIndex = zIndexBase + 1,
 	})
-	local LeftLayout = new("UIListLayout", {Parent = LeftTabs, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0,6)})
-	LeftLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	new("UIListLayout", { Parent = LeftTabs, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6) })
 
-	-- right tabs container
 	local RightTabs = new("Frame", {
-		Parent = Window;
-		Name = "RightTabs";
-		BackgroundTransparency = 1;
-		Size = UDim2.new(0, 110, 1, -60);
-		Position = UDim2.new(1, -118, 0, 36);
-		ZIndex = winZ+1;
+		Parent = Window,
+		BackgroundTransparency = 1,
+		Size = UDim2.new(0, 120, 1, -70),
+		Position = UDim2.new(1, -130, 0, 36),
+		ZIndex = zIndexBase + 1,
 	})
-	local RightLayout = new("UIListLayout", {Parent = RightTabs, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0,6)})
-	RightLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	new("UIListLayout", { Parent = RightTabs, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6) })
 
-	-- center content area
+	-- Central content area
 	local ContentArea = new("Frame", {
-		Parent = Window;
-		Name = "Content";
-		BackgroundColor3 = Color3.fromRGB(18,18,18);
-		Size = UDim2.new(1, -236 - 16, 1, -76);
-		Position = UDim2.new(0, 118, 0, 36);
-		BorderSizePixel = 0;
-		ZIndex = winZ;
+		Parent = Window,
+		BackgroundColor3 = Color3.fromRGB(20, 20, 20),
+		Size = UDim2.new(1, -260 - 20, 1, -96),
+		Position = UDim2.new(0, 140, 0, 36),
+		ZIndex = zIndexBase + 1,
 	})
-	new("UICorner", {Parent = ContentArea, CornerRadius = UDim.new(0,6)})
-	local ContentLayout = new("UIListLayout", {Parent = ContentArea, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0,6)})
+	new("UICorner", { Parent = ContentArea, CornerRadius = UDim.new(0, 6) })
+	local ContentLayout = new("UIListLayout", { Parent = ContentArea, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6) })
 	ContentLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
-	ContentLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	new("UIPadding", { Parent = ContentArea, PaddingLeft = UDim.new(0, 8), PaddingTop = UDim.new(0, 8) })
 
-	-- footer with creator name
+	-- Footer (creator name)
 	local Footer = new("Frame", {
-		Parent = Window;
-		Name = "Footer";
-		BackgroundTransparency = 1;
-		Size = UDim2.new(1, 0, 0, 28);
-		Position = UDim2.new(0,0,1,-28);
-		ZIndex = winZ+1;
+		Parent = Window,
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 28),
+		Position = UDim2.new(0, 0, 1, -28),
+		ZIndex = zIndexBase + 1,
 	})
-	local FooterLabel = new("TextLabel", {
-		Parent = Footer;
-		BackgroundTransparency = 1;
-		Text = "ESPECTROXS";
-		Font = Enum.Font.GothamBold;
-		TextSize = 13;
-		TextColor3 = options.main_color;
-		Size = UDim2.new(1, -12, 1, 0);
-		Position = UDim2.new(0, 8, 0, 0);
-		TextXAlignment = Enum.TextXAlignment.Right;
-		ZIndex = winZ+2;
+	new("TextLabel", {
+		Parent = Footer,
+		BackgroundTransparency = 1,
+		Text = "ESPECTROXS",
+		Font = Enum.Font.GothamBold,
+		TextSize = 13,
+		TextColor3 = opts.main_color,
+		Size = UDim2.new(1, -12, 1, 0),
+		Position = UDim2.new(0, 8, 0, 0),
+		TextXAlignment = Enum.TextXAlignment.Right,
+		ZIndex = zIndexBase + 2,
 	})
 
-	-- draggable
+	-- Resizer (bottom-right)
+	local Resizer = new("ImageButton", {
+		Parent = Window,
+		BackgroundTransparency = 1,
+		Size = UDim2.new(0, 16, 0, 16),
+		Position = UDim2.new(1, -20, 1, -20),
+		ZIndex = zIndexBase + 4,
+		Image = "rbxassetid://2851929490",
+		ImageColor3 = Color3.fromRGB(50, 50, 50),
+		AutoButtonColor = false,
+	})
+	new("UICorner", { Parent = Resizer, CornerRadius = UDim.new(0, 4) })
+
+	-- Draggable
 	Window.Active = true
 	Window.Draggable = true
 
-	-- simple resizer (bottom-right)
-	local Resizer = new("Frame", {
-		Parent = Window;
-		BackgroundTransparency = 1;
-		Size = UDim2.new(0, 16, 0, 16);
-		Position = UDim2.new(1, -18, 1, -18);
-		ZIndex = winZ+5;
-	})
-	local ResGrip = new("ImageLabel", {
-		Parent = Resizer;
-		Size = UDim2.new(1,0,1,0);
-		BackgroundTransparency = 1;
-		Image = "rbxassetid://2851929490";
-		ImageColor3 = Color3.fromRGB(50,50,50);
-	})
-
-	-- resizing behavior
+	-- Resizing behavior
 	do
-		local resizing = false
-		local canResize = options.can_resize
-		local mouse = LocalPlayer and LocalPlayer:GetMouse()
-		Resizer.InputBegan:Connect(function(input)
-			if input.UserInputType == Enum.UserInputType.MouseButton1 and canResize then
-				resizing = true
-			end
+		local dragging = false
+		local mouse = LocalPlayer:GetMouse()
+		Resizer.MouseButton1Down:Connect(function()
+			if not opts.can_resize then return end
+			dragging = true
+			Window.Draggable = false
 		end)
 		UserInputService.InputEnded:Connect(function(input)
 			if input.UserInputType == Enum.UserInputType.MouseButton1 then
-				resizing = false
+				dragging = false
+				Window.Draggable = true
 			end
 		end)
 		RunService.Heartbeat:Connect(function()
-			if resizing and canResize then
+			if dragging and opts.can_resize then
 				local mpos = UserInputService:GetMouseLocation()
 				local topLeft = Window.AbsolutePosition
-				local newW = math.max(options.min_size.X, mpos.X - topLeft.X)
-				local newH = math.max(options.min_size.Y, mpos.Y - topLeft.Y)
+				local newW = math.max(opts.min_size.X, mpos.X - topLeft.X)
+				local newH = math.max(opts.min_size.Y, mpos.Y - topLeft.Y)
 				Window.Size = UDim2.new(0, newW, 0, newH)
 			end
 		end)
 	end
 
-	-- internals: keep track of tabs
-	local window_data = {
-		_leftTabs = {},
-		_rightTabs = {},
-		_activeTab = nil,
-	}
+	-- Minimize behavior
+	local minimized = false
+	local prevSize = Window.Size
+	MinimizeBtn.MouseButton1Click:Connect(function()
+		minimized = not minimized
+		if minimized then
+			prevSize = Window.Size
+			tween(ContentArea, {Size = UDim2.new(ContentArea.Size.X.Scale, ContentArea.Size.X.Offset, 0, 0)}, 0.12)
+			-- hide left/right tabs content
+			for _, c in ipairs(LeftTabs:GetChildren()) do if c:IsA("TextButton") then c.Visible = false end end
+			for _, c in ipairs(RightTabs:GetChildren()) do if c:IsA("TextButton") then c.Visible = false end end
+			tween(Window, {Size = UDim2.new(Window.Size.X.Scale, Window.Size.X.Offset, 0, 28)}, 0.12)
+			MinimizeBtn.Text = "+"
+		else
+			tween(Window, {Size = prevSize}, 0.12)
+			MinimizeBtn.Text = "-"
+			-- restore tab buttons
+			for _, c in ipairs(LeftTabs:GetChildren()) do if c:IsA("TextButton") then c.Visible = true end end
+			for _, c in ipairs(RightTabs:GetChildren()) do if c:IsA("TextButton") then c.Visible = true end end
+			-- small delay to allow window size change
+			delay(0.12, function()
+				-- no-op; content area will auto-size with children
+			end)
+		end
+	end)
 
-	-- helper: switch display to a tab content frame
-	local function showTab(tabFrame)
-		-- hide all content children
-		for _, c in pairs(ContentArea:GetChildren()) do
-			if c:IsA("Frame") and c.Name ~= "ContentHolder" then
-				c.Visible = false
+	-- Keep track of added tabs and active content
+	local window_data = { _leftTabs = {}, _rightTabs = {}, _active = nil }
+
+	local function showTabContent(frame)
+		for _, child in ipairs(ContentArea:GetChildren()) do
+			if child:IsA("Frame") and child.Name:sub(1,4) == "Tab_" then
+				child.Visible = false
 			end
 		end
-		if tabFrame and tabFrame.Parent == ContentArea then
-			tabFrame.Visible = true
-			window_data._activeTab = tabFrame
+		if frame and frame.Parent == ContentArea then
+			frame.Visible = true
+			window_data._active = frame
 		end
 	end
 
-	-- API: AddTab(side, name)
+	-- AddTab API: AddTab(side, name)
 	function window_data:AddTab(side, tab_name)
-		side = tostring(side == "Right" and "Right" or "Left") -- Accept "Right" else "Left"
+		side = tostring((side or "Left"))
 		tab_name = tostring(tab_name or "Tab")
+		local sideNormalized = (string.lower(side) == "right") and "Right" or "Left"
 
-		-- create tab button
+		-- button on side
+		local parentTabs = (sideNormalized == "Right") and RightTabs or LeftTabs
 		local btn = new("TextButton", {
-			Parent = (side == "Right") and RightTabs or LeftTabs;
-			BackgroundColor3 = Color3.fromRGB(36,36,36);
-			Size = UDim2.new(1, -6, 0, 28);
-			Text = tab_name;
-			Font = Enum.Font.GothamSemibold;
-			TextSize = 14;
-			TextColor3 = Color3.fromRGB(220,220,220);
-			BorderSizePixel = 0;
+			Parent = parentTabs,
+			BackgroundColor3 = Color3.fromRGB(40,40,40),
+			BorderSizePixel = 0,
+			Text = tab_name,
+			Font = Enum.Font.GothamSemibold,
+			TextSize = 14,
+			TextColor3 = Color3.fromRGB(230,230,230),
+			Size = UDim2.new(1, -6, 0, 30),
+			ZIndex = zIndexBase + 2,
 		})
-		new("UICorner", {Parent = btn, CornerRadius = UDim.new(0,6)})
+		new("UICorner", { Parent = btn, CornerRadius = UDim.new(0, 6) })
 
-		-- create tab content frame
+		-- content frame for the tab
 		local content = new("Frame", {
-			Parent = ContentArea;
-			BackgroundTransparency = 1;
-			Size = UDim2.new(1, -12, 0, 0); -- will auto-size based on children
-			AutomaticSize = Enum.AutomaticSize.Y;
-			Visible = false;
-			Name = "Tab_"..tab_name;
+			Parent = ContentArea,
+			Name = "Tab_" .. tab_name,
+			BackgroundTransparency = 1,
+			AutomaticSize = Enum.AutomaticSize.Y,
+			Size = UDim2.new(1, -12, 0, 0),
+			Position = UDim2.new(0, 6, 0, 0),
+			Visible = false,
+			ZIndex = zIndexBase + 1,
 		})
-		local contentLayout = new("UIListLayout", {Parent = content, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0,6)})
-		contentLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
-		local p = new("UIPadding", {Parent = content, PaddingLeft = UDim.new(0,6), PaddingTop = UDim.new(0,6), PaddingBottom = UDim.new(0,6)})
+		new("UIListLayout", { Parent = content, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6) })
+		new("UIPadding", { Parent = content, PaddingLeft = UDim.new(0, 6), PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6) })
 
-		-- set button click behavior
+		-- button behavior
 		btn.MouseButton1Click:Connect(function()
-			showTab(content)
-			-- visual feedback
-			for _, b in pairs((side == "Right") and RightTabs:GetChildren() or LeftTabs:GetChildren()) do
-				if b:IsA("TextButton") then
-					b.BackgroundColor3 = Color3.fromRGB(36,36,36)
-				end
+			showTabContent(content)
+			-- visual: reset siblings then highlight clicked
+			for _, s in ipairs(parentTabs:GetChildren()) do
+				if s:IsA("TextButton") then s.BackgroundColor3 = Color3.fromRGB(40,40,40) end
 			end
-			btn.BackgroundColor3 = options.main_color
+			btn.BackgroundColor3 = opts.main_color
 		end)
 
-		-- tab API for content creation
+		-- expose API for adding controls
 		local tab_api = {}
 
 		function tab_api:AddLabel(text)
-			text = tostring(text or "")
+			local t = tostring(text or "")
 			local label = new("TextLabel", {
-				Parent = content;
-				BackgroundTransparency = 1;
-				Text = text;
-				Font = Enum.Font.Gotham;
-				TextSize = 14;
-				TextColor3 = Color3.fromRGB(220,220,220);
-				Size = UDim2.new(1, -12, 0, 18);
-				TextXAlignment = Enum.TextXAlignment.Left;
+				Parent = content,
+				BackgroundTransparency = 1,
+				Text = t,
+				Font = Enum.Font.Gotham,
+				TextSize = 14,
+				TextColor3 = Color3.fromRGB(230,230,230),
+				Size = UDim2.new(1, -12, 0, 18),
+				TextXAlignment = Enum.TextXAlignment.Left,
 			})
 			return label
 		end
 
 		function tab_api:AddButton(text, callback)
-			text = tostring(text or "Button")
+			local txt = tostring(text or "Button")
 			callback = (type(callback) == "function") and callback or function() end
 			local btnf = new("TextButton", {
-				Parent = content;
-				BackgroundColor3 = options.main_color;
-				Text = text;
-				Font = Enum.Font.GothamSemibold;
-				TextSize = 14;
-				TextColor3 = Color3.new(1,1,1);
-				Size = UDim2.new(0.6, 0, 0, 28);
-				BorderSizePixel = 0;
+				Parent = content,
+				BackgroundColor3 = opts.main_color,
+				Text = txt,
+				Font = Enum.Font.GothamSemibold,
+				TextSize = 14,
+				TextColor3 = Color3.new(1,1,1),
+				Size = UDim2.new(0.6, 0, 0, 32),
+				BorderSizePixel = 0,
 			})
-			new("UICorner", {Parent = btnf, CornerRadius = UDim.new(0,6)})
-
+			new("UICorner", { Parent = btnf, CornerRadius = UDim.new(0, 6) })
 			btnf.MouseButton1Click:Connect(function()
 				pcall(callback)
 			end)
@@ -331,20 +395,20 @@ function library:AddWindow(title, options)
 		function tab_api:AddSwitch(text, callback)
 			text = tostring(text or "Switch")
 			callback = (type(callback) == "function") and callback or function() end
-			local container = new("Frame", {Parent = content, Size = UDim2.new(1, -12, 0, 24), BackgroundTransparency = 1})
-			local lbl = new("TextLabel", {Parent = container, BackgroundTransparency = 1, Text = text, Font = Enum.Font.Gotham, TextSize = 14, TextColor3 = Color3.fromRGB(220,220,220), Size = UDim2.new(0.7,0,1,0), TextXAlignment = Enum.TextXAlignment.Left})
-			local sw = new("TextButton", {Parent = container, BackgroundColor3 = Color3.fromRGB(60,60,60), Size = UDim2.new(0,48,0,18), Position = UDim2.new(1,-54,0,3), Text = "", BorderSizePixel = 0})
-			new("UICorner", {Parent = sw, CornerRadius = UDim.new(1,0)})
-			local dot = new("Frame", {Parent = sw, BackgroundColor3 = Color3.new(1,1,1), Size = UDim2.new(0,10,0,10), Position = UDim2.new(0,4,0,4)})
-			new("UICorner", {Parent = dot, CornerRadius = UDim.new(1,0)})
+			local container = new("Frame", { Parent = content, BackgroundTransparency = 1, Size = UDim2.new(1, -12, 0, 28) })
+			local lbl = new("TextLabel", { Parent = container, BackgroundTransparency = 1, Text = text, Font = Enum.Font.Gotham, TextSize = 14, TextColor3 = Color3.fromRGB(230,230,230), Size = UDim2.new(0.7, 0, 1, 0), TextXAlignment = Enum.TextXAlignment.Left })
+			local sw = new("TextButton", { Parent = container, BackgroundColor3 = Color3.fromRGB(60,60,60), Size = UDim2.new(0, 52, 0, 20), Position = UDim2.new(1, -60, 0, 4), Text = "", BorderSizePixel = 0 })
+			new("UICorner", { Parent = sw, CornerRadius = UDim.new(1,0) })
+			local dot = new("Frame", { Parent = sw, BackgroundColor3 = Color3.new(1,1,1), Size = UDim2.new(0, 10, 0, 10), Position = UDim2.new(0, 4, 0, 5) })
+			new("UICorner", { Parent = dot, CornerRadius = UDim.new(1,0) })
 			local toggled = false
 			local function update()
 				if toggled then
-					tween(sw, {BackgroundColor3 = options.main_color}, 0.08)
-					tween(dot, {Position = UDim2.new(1, -14, 0, 4)}, 0.08)
+					tween(sw, { BackgroundColor3 = opts.main_color }, 0.08)
+					tween(dot, { Position = UDim2.new(1, -14, 0, 5) }, 0.08)
 				else
-					tween(sw, {BackgroundColor3 = Color3.fromRGB(60,60,60)}, 0.08)
-					tween(dot, {Position = UDim2.new(0,4,0,4)}, 0.08)
+					tween(sw, { BackgroundColor3 = Color3.fromRGB(60,60,60) }, 0.08)
+					tween(dot, { Position = UDim2.new(0, 4, 0, 5) }, 0.08)
 				end
 				pcall(callback, toggled)
 			end
@@ -358,57 +422,48 @@ function library:AddWindow(title, options)
 			}
 		end
 
-		function tab_api:AddSlider(text, callback, opts)
+		function tab_api:AddSlider(text, callback, slider_opts)
 			text = tostring(text or "Slider")
 			callback = (type(callback) == "function") and callback or function() end
-			opts = type(opts) == "table" and opts or {}
-			local minv = tonumber(opts.min) or 0
-			local maxv = tonumber(opts.max) or 100
-			local readonly = opts.readonly == true
+			slider_opts = type(slider_opts) == "table" and slider_opts or {}
+			local minv = tonumber(slider_opts.min) or 0
+			local maxv = tonumber(slider_opts.max) or 100
+			local readonly = slider_opts.readonly == true
 
-			local container = new("Frame", {Parent = content, BackgroundTransparency = 1, Size = UDim2.new(1, -12, 0, 36)})
-			local lbl = new("TextLabel", {Parent = container, BackgroundTransparency = 1, Text = text, Font = Enum.Font.Gotham, TextSize = 14, TextColor3 = Color3.fromRGB(220,220,220), Size = UDim2.new(1, -70, 0, 18), TextXAlignment = Enum.TextXAlignment.Left})
-			local valLabel = new("TextLabel", {Parent = container, BackgroundTransparency = 1, Text = tostring(minv), Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = Color3.fromRGB(220,220,220), Size = UDim2.new(0,64,0,18), Position = UDim2.new(1, -64, 0, 0)})
-			local bar = new("Frame", {Parent = container, BackgroundColor3 = Color3.fromRGB(50,50,50), Size = UDim2.new(1, -12, 0, 10), Position = UDim2.new(0,6,0,20), BorderSizePixel = 0})
-			new("UICorner", {Parent = bar, CornerRadius = UDim.new(0,6)})
-			local fill = new("Frame", {Parent = bar, BackgroundColor3 = options.main_color, Size = UDim2.new(0,0,1,0)})
-			new("UICorner", {Parent = fill, CornerRadius = UDim.new(0,6)})
+			local container = new("Frame", { Parent = content, BackgroundTransparency = 1, Size = UDim2.new(1, -12, 0, 44) })
+			new("TextLabel", { Parent = container, BackgroundTransparency = 1, Text = text, Font = Enum.Font.Gotham, TextSize = 14, TextColor3 = Color3.fromRGB(230,230,230), Size = UDim2.new(1, -70, 0, 18), TextXAlignment = Enum.TextXAlignment.Left })
+			local valLabel = new("TextLabel", { Parent = container, BackgroundTransparency = 1, Text = tostring(minv), Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = Color3.fromRGB(230,230,230), Size = UDim2.new(0, 60, 0, 18), Position = UDim2.new(1, -60, 0, 0) })
+			local bar = new("Frame", { Parent = container, BackgroundColor3 = Color3.fromRGB(50,50,50), Size = UDim2.new(1, -12, 0, 10), Position = UDim2.new(0, 6, 0, 26), BorderSizePixel = 0 })
+			new("UICorner", { Parent = bar, CornerRadius = UDim.new(0, 6) })
+			local fill = new("Frame", { Parent = bar, BackgroundColor3 = opts.main_color, Size = UDim2.new(0, 0, 1, 0) })
+			new("UICorner", { Parent = fill, CornerRadius = UDim.new(0, 6) })
 
-			-- interaction
 			local dragging = false
-			local function updateFromX(x)
-				local absPos = bar.AbsolutePosition
-				local rel = math.clamp((x - absPos.X) / bar.AbsoluteSize.X, 0, 1)
-				fill.Size = UDim2.new(rel, 0, 1, 0)
-				local value = math.floor(minv + (maxv - minv) * rel)
-				valLabel.Text = tostring(value)
-				pcall(callback, value)
-			end
-
 			bar.InputBegan:Connect(function(input)
 				if input.UserInputType == Enum.UserInputType.MouseButton1 and not readonly then
 					dragging = true
-					updateFromX(UserInputService:GetMouseLocation().X)
 				end
 			end)
 			UserInputService.InputChanged:Connect(function(input)
-				if dragging and input.UserInputType == Enum.UserInputType.MouseMovement and not readonly then
-					updateFromX(UserInputService:GetMouseLocation().X)
+				if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+					local rel = math.clamp((UserInputService:GetMouseLocation().X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
+					fill.Size = UDim2.new(rel, 0, 1, 0)
+					local v = math.floor(minv + (maxv - minv) * rel)
+					valLabel.Text = tostring(v)
+					pcall(callback, v)
 				end
 			end)
 			UserInputService.InputEnded:Connect(function(input)
-				if input.UserInputType == Enum.UserInputType.MouseButton1 then
-					dragging = false
-				end
+				if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
 			end)
 
 			return {
 				Set = function(v)
-					local cl = math.clamp(tonumber(v) or minv, minv, maxv)
-					local rel = (cl - minv) / (maxv - minv)
+					local clamped = math.clamp(tonumber(v) or minv, minv, maxv)
+					local rel = (clamped - minv) / math.max(1, (maxv - minv))
 					fill.Size = UDim2.new(rel, 0, 1, 0)
-					valLabel.Text = tostring(math.floor(cl))
-					pcall(callback, math.floor(cl))
+					valLabel.Text = tostring(math.floor(clamped))
+					pcall(callback, math.floor(clamped))
 				end
 			}
 		end
@@ -418,30 +473,37 @@ function library:AddWindow(title, options)
 			callback = (type(callback) == "function") and callback or function() end
 			items = type(items) == "table" and items or {}
 
-			local dropdown = new("TextButton", {Parent = content, BackgroundColor3 = Color3.fromRGB(36,36,36), Text = "▼  "..text, Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = Color3.fromRGB(220,220,220), Size = UDim2.new(0.7,0,0,28), BorderSizePixel = 0})
-			new("UICorner", {Parent = dropdown, CornerRadius = UDim.new(0,6)})
+			local dropdown = new("TextButton", {
+				Parent = content,
+				BackgroundColor3 = Color3.fromRGB(36,36,36),
+				Text = "▾  " .. text,
+				Font = Enum.Font.GothamBold,
+				TextSize = 14,
+				TextColor3 = Color3.fromRGB(230,230,230),
+				Size = UDim2.new(0.6, 0, 0, 30),
+				BorderSizePixel = 0,
+			})
+			new("UICorner", { Parent = dropdown, CornerRadius = UDim.new(0, 6) })
 
-			local box = new("Frame", {Parent = content, BackgroundColor3 = Color3.fromRGB(25,25,25), Visible = false, Size = UDim2.new(0.7,0,0,0)})
-			new("UICorner", {Parent = box, CornerRadius = UDim.new(0,6)})
-			local boxLayout = new("UIListLayout", {Parent = box, SortOrder = Enum.SortOrder.LayoutOrder})
+			local box = new("Frame", { Parent = content, BackgroundColor3 = Color3.fromRGB(26,26,26), Size = UDim2.new(0.6, 0, 0, 0), Visible = false })
+			new("UICorner", { Parent = box, CornerRadius = UDim.new(0, 6) })
+			local boxLayout = new("UIListLayout", { Parent = box, SortOrder = Enum.SortOrder.LayoutOrder })
 
 			local open = false
 			local function rebuild()
-				for _, c in pairs(box:GetChildren()) do
-					if not c:IsA("UIListLayout") and not c:IsA("UICorner") then c:Destroy() end
-				end
+				for _, c in ipairs(box:GetChildren()) do if not c:IsA("UIListLayout") and not c:IsA("UICorner") then c:Destroy() end end
 				local total = 0
 				for _, it in ipairs(items) do
-					local b = new("TextButton", {Parent = box, BackgroundTransparency = 1, Text = "  "..tostring(it), Font = Enum.Font.Gotham, TextSize = 14, TextColor3 = Color3.fromRGB(220,220,220), Size = UDim2.new(1,0,0,26), BorderSizePixel = 0})
+					local itBtn = new("TextButton", { Parent = box, BackgroundTransparency = 1, Text = "  " .. tostring(it), Font = Enum.Font.Gotham, TextSize = 14, TextColor3 = Color3.fromRGB(230,230,230), Size = UDim2.new(1, 0, 0, 26), BorderSizePixel = 0 })
 					total = total + 26
-					b.MouseButton1Click:Connect(function()
-						dropdown.Text = "▼  "..text.." ["..tostring(it).."]"
+					itBtn.MouseButton1Click:Connect(function()
+						dropdown.Text = "▾  " .. text .. " [" .. tostring(it) .. "]"
 						box.Visible = false
 						open = false
 						pcall(callback, it)
 					end)
 				end
-				box.Size = UDim2.new(0.7,0,0, total)
+				box.Size = UDim2.new(0.6, 0, 0, total)
 			end
 			rebuild()
 
@@ -453,9 +515,7 @@ function library:AddWindow(title, options)
 			return {
 				Add = function(v) table.insert(items, v); rebuild() end,
 				Remove = function(v)
-					for i,it in ipairs(items) do
-						if it == v then table.remove(items, i); break end
-					end
+					for i, it in ipairs(items) do if it == v then table.remove(items, i); break end end
 					rebuild()
 				end
 			}
@@ -463,51 +523,37 @@ function library:AddWindow(title, options)
 
 		function tab_api:AddColorPicker(callback)
 			callback = (type(callback) == "function") and callback or function() end
-			local container = new("Frame", {Parent = content, BackgroundTransparency = 1, Size = UDim2.new(1, -12, 0, 72)})
-			local palette = new("Frame", {Parent = container, BackgroundColor3 = Color3.fromRGB(255,0,0), Size = UDim2.new(0,120,0,72), Position = UDim2.new(0,6,0,0)})
-			local sample = new("Frame", {Parent = container, BackgroundColor3 = Color3.fromRGB(255,0,0), Size = UDim2.new(0,36,0,36), Position = UDim2.new(0,134,0,6)})
-			new("UICorner", {Parent = sample, CornerRadius = UDim.new(0,6)})
-			local slider = new("Frame", {Parent = container, BackgroundColor3 = Color3.fromRGB(60,60,60), Size = UDim2.new(0,12,0,72), Position = UDim2.new(0,176,0,0)})
-			local hue = 0
-			local sat = 1
-			local val = 1
-
+			local container = new("Frame", { Parent = content, BackgroundTransparency = 1, Size = UDim2.new(1, -12, 0, 72) })
+			local palette = new("Frame", { Parent = container, BackgroundColor3 = Color3.fromRGB(255, 0, 0), Size = UDim2.new(0, 120, 0, 72), Position = UDim2.new(0, 6, 0, 0) })
+			local sample = new("Frame", { Parent = container, BackgroundColor3 = Color3.fromRGB(255, 0, 0), Size = UDim2.new(0, 36, 0, 36), Position = UDim2.new(0, 132, 0, 6) })
+			new("UICorner", { Parent = sample, CornerRadius = UDim.new(0, 6) })
+			local hue = 0; local sat = 1; local val = 1
 			local function update()
 				local c = Color3.fromHSV(hue, sat, val)
 				sample.BackgroundColor3 = c
 				pcall(callback, c)
 			end
-
-			-- quick naive interaction: cycle hue on palette click
 			palette.InputBegan:Connect(function(inp)
 				if inp.UserInputType == Enum.UserInputType.MouseButton1 then
 					local loc = UserInputService:GetMouseLocation()
-					local relX = (loc.X - palette.AbsolutePosition.X) / palette.AbsoluteSize.X
-					local relY = (loc.Y - palette.AbsolutePosition.Y) / palette.AbsoluteSize.Y
-					hue = math.clamp(relX, 0, 1)
-					sat = math.clamp(1 - relY, 0, 1)
+					local relX = math.clamp((loc.X - palette.AbsolutePosition.X) / palette.AbsoluteSize.X, 0, 1)
+					local relY = math.clamp((loc.Y - palette.AbsolutePosition.Y) / palette.AbsoluteSize.Y, 0, 1)
+					hue = relX
+					sat = 1 - relY
 					update()
 				end
 			end)
-			return {
-				Set = function(c)
-					if typeof(c) == "Color3" then
-						local h,s,v = Color3.toHSV(c)
-						hue, sat, val = h, s, v
-						update()
-					end
-				end
-			}
+			return { Set = function(c) if typeof(c) == "Color3" then hue, sat, val = Color3.toHSV(c); update() end end }
 		end
 
 		function tab_api:AddKeybind(name, callback, defaultKey)
 			name = tostring(name or "Keybind")
 			callback = (type(callback) == "function") and callback or function() end
 			defaultKey = defaultKey or Enum.KeyCode.RightShift
-			local container = new("Frame", {Parent = content, BackgroundTransparency = 1, Size = UDim2.new(1, -12, 0, 28)})
-			local lbl = new("TextLabel", {Parent = container, BackgroundTransparency = 1, Text = name, Font = Enum.Font.Gotham, TextColor3 = Color3.fromRGB(220,220,220), TextSize = 14, Size = UDim2.new(0.7,0,1,0), TextXAlignment = Enum.TextXAlignment.Left})
-			local keyBtn = new("TextButton", {Parent = container, BackgroundColor3 = Color3.fromRGB(36,36,36), Text = tostring(defaultKey.Name), Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = Color3.fromRGB(220,220,220), Size = UDim2.new(0,100,0,24), Position = UDim2.new(1,-106,0,2), BorderSizePixel = 0})
-			new("UICorner", {Parent = keyBtn, CornerRadius = UDim.new(0,6)})
+			local container = new("Frame", { Parent = content, BackgroundTransparency = 1, Size = UDim2.new(1, -12, 0, 28) })
+			new("TextLabel", { Parent = container, BackgroundTransparency = 1, Text = name, Font = Enum.Font.Gotham, TextColor3 = Color3.fromRGB(230,230,230), TextSize = 14, Size = UDim2.new(0.7, 0, 1, 0), TextXAlignment = Enum.TextXAlignment.Left })
+			local keyBtn = new("TextButton", { Parent = container, BackgroundColor3 = Color3.fromRGB(36,36,36), Text = tostring(defaultKey.Name), Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = Color3.fromRGB(230,230,230), Size = UDim2.new(0, 120, 0, 24), Position = UDim2.new(1, -126, 0, 2), BorderSizePixel = 0 })
+			new("UICorner", { Parent = keyBtn, CornerRadius = UDim.new(0, 6) })
 
 			local boundKey = defaultKey
 			keyBtn.MouseButton1Click:Connect(function()
@@ -520,50 +566,40 @@ function library:AddWindow(title, options)
 					keyBtn.Text = tostring(boundKey.Name)
 				end
 			end)
-
 			UserInputService.InputBegan:Connect(function(inp, gp)
-				if not gp and inp.KeyCode == boundKey then
+				if gp then return end
+				if inp.KeyCode == boundKey then
 					pcall(callback, boundKey)
 				end
 			end)
-
-			return {
-				Set = function(k) if typeof(k) == "EnumItem" then boundKey = k; keyBtn.Text = tostring(k.Name) end end
-			}
+			return { Set = function(k) if typeof(k) == "EnumItem" then boundKey = k; keyBtn.Text = tostring(k.Name) end end }
 		end
 
-		-- done: store and return
-		if side == "Right" then
-			table.insert(window_data._rightTabs, {button = btn, content = content})
+		-- convenience: show method for API
+		function tab_api:Show()
+			showTabContent(content)
+			-- highlight button
+			for _, b in ipairs(parentTabs:GetChildren()) do if b:IsA("TextButton") then b.BackgroundColor3 = Color3.fromRGB(40,40,40) end end
+			btn.BackgroundColor3 = opts.main_color
+		end
+
+		-- store
+		if sideNormalized == "Right" then
+			table.insert(window_data._rightTabs, { button = btn, content = content, api = tab_api })
 		else
-			table.insert(window_data._leftTabs, {button = btn, content = content})
+			table.insert(window_data._leftTabs, { button = btn, content = content, api = tab_api })
 		end
 
-		-- if first tab added overall, show it
-		if not window_data._activeTab then
-			showTab(content)
-			btn.BackgroundColor3 = options.main_color
+		-- if first tab: auto-show
+		if not window_data._active then
+			tab_api:Show()
 		end
 
 		return tab_api, content
 	end
 
-	-- final return
+	-- return window data and the Window GUI root for advanced usage
 	return window_data, Window
 end
 
 return library
-
---[[
-Basic usage example:
-
-local lib = require(path_to_this_file)
-local win = lib:AddWindow("My UI", {main_color = Color3.fromRGB(90,30,140), min_size = Vector2.new(480,340)})
-local left, lframe = win:AddTab("Left", "Settings")
-left:AddLabel("Welcome to settings")
-left:AddButton("Do thing", function() print("Did thing") end)
-local right, rframe = win:AddTab("Right", "About")
-right:AddLabel("Created by ESPECTROXS")
-
--- The footer on every window shows "ESPECTROXS"
-]]
