@@ -143,7 +143,7 @@ function DiscordLib:Window(text)
 	Title.BackgroundTransparency = 1.000
 	Title.Position = UDim2.new(0.0102790017, 0, 0, 0)
 	Title.Size = UDim2.new(0, 192, 0, 23)
-	Title.Font = Enum.Font.Bangers
+	Title.Font = Enum.Font.Arcane
 	Title.Text = text
 	Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 	Title.TextSize = 13.000
@@ -152,7 +152,7 @@ function DiscordLib:Window(text)
 	CloseBtn.Name = "CloseBtn"
 	CloseBtn.Parent = TopFrame
 	CloseBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-	CloseBtn.BackgroundTransparency = 0
+	CloseBtn.BackgroundTransparency = 1.000
 	CloseBtn.Position = UDim2.new(0.959063113, 0, -0.0169996787, 0)
 	CloseBtn.Size = UDim2.new(0, 28, 0, 22)
 	CloseBtn.Font = Enum.Font.Gotham
@@ -3246,6 +3246,7 @@ function DiscordLib:Window(text)
 end
 
 return DiscordLib
+
 
 
 
