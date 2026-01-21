@@ -132,8 +132,8 @@ function DiscordLib:Window(text)
 	TopFrameHolder.Name = "TopFrameHolder"
 	TopFrameHolder.Parent = TopFrame
 	TopFrameHolder.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-	TopFrameHolder.BackgroundTransparency = 0
-	TopFrameHolder.BorderSizePixel = 0
+	TopFrameHolder.BackgroundTransparency = 1.000
+	TopFrameHolder.BorderSizePixel = 16
 	TopFrameHolder.Position = UDim2.new(-0.000658480625, 0, 0, 0)
 	TopFrameHolder.Size = UDim2.new(0, 681, 0, 22)
 
@@ -3246,6 +3246,7 @@ function DiscordLib:Window(text)
 end
 
 return DiscordLib
+
 
 
 
