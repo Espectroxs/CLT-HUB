@@ -1,84 +1,80 @@
-local misC = getgenv().ELERIUM_MISC_TAB
-if not misC then
-    warn("TAB misC não encontrada")
+-- usa TAB existente do Elerium
+local youtube = getgenv().ELERIUM_MISC_TAB
+if not youtube then
+    warn("TAB do Elerium não encontrada")
     return
 end
-local youtube = window:AddTab("YouTube")
+
+-- evita carregar duas vezes
+if getgenv().YOUTUBE_RAW_LOADED then return end
+getgenv().YOUTUBE_RAW_LOADED = true
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 
--- evita criar duas GUIs
-if player.PlayerGui:FindFirstChild("YouTubeUI") then
-    player.PlayerGui.YouTubeUI.Enabled = true
-    return
-end
-
+-- GUI
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "YouTubeUI"
 ScreenGui.Parent = player.PlayerGui
 ScreenGui.ResetOnSpawn = false
+ScreenGui.Enabled = false
 
 local MainFrame = Instance.new("Frame", ScreenGui)
 MainFrame.Size = UDim2.new(0, 850, 0, 480)
 MainFrame.Position = UDim2.new(0.5, -425, 0.5, -240)
 MainFrame.BackgroundColor3 = Color3.fromRGB(18,18,18)
-MainFrame.Visible = false
 MainFrame.BorderSizePixel = 0
 
-local function round(ui, r)
-    local c = Instance.new("UICorner")
-    c.CornerRadius = UDim.new(0, r)
-    c.Parent = ui
-end
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 14)
 
-round(MainFrame, 14)
-
+-- TopBar
 local TopBar = Instance.new("Frame", MainFrame)
 TopBar.Size = UDim2.new(1,0,0,50)
 TopBar.BackgroundColor3 = Color3.fromRGB(32,32,32)
 TopBar.BorderSizePixel = 0
-round(TopBar, 14)
+Instance.new("UICorner", TopBar).CornerRadius = UDim.new(0, 14)
 
 local Title = Instance.new("TextLabel", TopBar)
-Title.Size = UDim2.new(0,300,1,0)
+Title.Size = UDim2.new(1,-60,1,0)
 Title.Position = UDim2.new(0,15,0,0)
 Title.Text = "YouTube"
-Title.TextColor3 = Color3.fromRGB(255,0,0)
-Title.TextSize = 28
 Title.Font = Enum.Font.GothamBold
-Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.TextSize = 26
+Title.TextColor3 = Color3.fromRGB(255,0,0)
+Title.TextXAlignment = Left
 Title.BackgroundTransparency = 1
 
 local Close = Instance.new("TextButton", TopBar)
 Close.Size = UDim2.new(0,40,0,40)
-Close.Position = UDim2.new(1,-50,0,5)
+Close.Position = UDim2.new(1,-45,0,5)
 Close.Text = "✕"
-Close.TextSize = 24
 Close.Font = Enum.Font.GothamBold
-Close.TextColor3 = Color3.fromRGB(200,200,200)
+Close.TextSize = 22
 Close.BackgroundTransparency = 1
+Close.TextColor3 = Color3.fromRGB(200,200,200)
 
+-- Video
 local Video = Instance.new("VideoFrame", MainFrame)
 Video.Position = UDim2.new(0,15,0,65)
 Video.Size = UDim2.new(0,580,0,380)
+Video.Video = "rbxassetid://5608321996"
 Video.Looped = true
 Video.Volume = 1
-Video.Video = "rbxassetid://5608410985"
-round(Video, 12)
+Instance.new("UICorner", Video).CornerRadius = UDim.new(0,12)
 
+-- Sidebar
 local SideBar = Instance.new("Frame", MainFrame)
 SideBar.Position = UDim2.new(0,610,0,65)
 SideBar.Size = UDim2.new(0,220,0,380)
 SideBar.BackgroundColor3 = Color3.fromRGB(24,24,24)
 SideBar.BorderSizePixel = 0
-round(SideBar, 12)
+Instance.new("UICorner", SideBar).CornerRadius = UDim.new(0,12)
 
 local videos = {
-    {name = "Trailer Roblox", id = "rbxassetid://131255219223247"},
-    {name = "Fight UFC", id = "rbxassetid://5608368298"},
-    {name = "Não Beba", id = "rbxassetid://5608321996"},
+    {name="Trailer Roblox", id="rbxassetid://131255219223247"},
+    {name="Fight UFC", id="rbxassetid://5608368298"},
+    {name="Não Beba", id="rbxassetid://5608321996"},
 }
 
 for i,v in ipairs(videos) do
@@ -88,11 +84,10 @@ for i,v in ipairs(videos) do
     btn.Text = v.name
     btn.Font = Enum.Font.Gotham
     btn.TextSize = 14
-    btn.TextWrapped = true
     btn.BackgroundColor3 = Color3.fromRGB(38,38,38)
     btn.TextColor3 = Color3.new(1,1,1)
     btn.BorderSizePixel = 0
-    round(btn, 8)
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0,8)
 
     btn.MouseButton1Click:Connect(function()
         Video.Video = v.id
@@ -100,42 +95,24 @@ for i,v in ipairs(videos) do
     end)
 end
 
-local originalPos = MainFrame.Position
-MainFrame.Position = UDim2.new(0.5, -425, 0.6, -200)
-MainFrame.BackgroundTransparency = 1
-
-local function openAnim()
-    MainFrame.Visible = true
-    TweenService:Create(
-        MainFrame,
-        TweenInfo.new(0.35),
-        {Position = originalPos, BackgroundTransparency = 0}
-    ):Play()
+-- animações
+local function open()
+    ScreenGui.Enabled = true
+    Video:Play()
 end
 
-local function closeAnim()
-    local t = TweenService:Create(
-        MainFrame,
-        TweenInfo.new(0.25),
-        {BackgroundTransparency = 1}
-    )
-    t:Play()
-    t.Completed:Wait()
-    MainFrame.Visible = false
+local function close()
+    Video:Pause()
+    ScreenGui.Enabled = false
 end
 
-youtube:AddButton("▶ Open Videos", function()
-    if MainFrame.Visible then
-        Video:Pause()
-        closeAnim()
+Close.MouseButton1Click:Connect(close)
+
+-- BOTÃO NO ELERIUM (TAB EXISTENTE)
+youtube:AddButton("📺 YouTube Videos", function()
+    if ScreenGui.Enabled then
+        close()
     else
-        openAnim()
-        Video:Play()
+        open()
     end
 end)
-
-Close.MouseButton1Click:Connect(function()
-    Video:Pause()
-    closeAnim()
-end)
-
