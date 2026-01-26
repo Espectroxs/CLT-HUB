@@ -1,9 +1,8 @@
-local window = getgenv().ELERIUM_WINDOW
-if not window then
-    warn("Elerium window não encontrada")
+local misC = getgenv().ELERIUM_MISC_TAB
+if not misC then
+    warn("TAB misC não encontrada")
     return
 end
-
 local youtube = window:AddTab("YouTube")
 
 local Players = game:GetService("Players")
@@ -139,3 +138,4 @@ Close.MouseButton1Click:Connect(function()
     Video:Pause()
     closeAnim()
 end)
+
