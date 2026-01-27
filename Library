@@ -161,7 +161,7 @@ Top.BackgroundColor3 = Color3.new(1, 1, 1)
 Top.BackgroundTransparency = 1
 Top.Position = UDim2.new(0, 0, 0, -5)
 Top.Size = UDim2.new(1, 0, 0, 10)
-Top.Image = "rbxassetid://106481238275072"
+Top.Image = "rbxassetid://2851926732"
 Top.ImageColor3 = Color3.new(0.160784, 0.290196, 0.478431)
 Top.ScaleType = Enum.ScaleType.Slice
 Top.SliceCenter = Rect.new(12, 12, 12, 12)
@@ -187,7 +187,7 @@ Title.TextXAlignment = Enum.TextXAlignment.Left
 
 TabSelection.Name = "TabSelection"
 TabSelection.Parent = Window
-TabSelection.BackgroundColor3 = Color3.new(1, 1, 1)
+TabSelection.BackgroundColor3 = Color3.new(0, 0, 0)
 TabSelection.BackgroundTransparency = 1
 TabSelection.Position = UDim2.new(0, 15, 0, 30)
 TabSelection.Size = UDim2.new(1, -30, 0, 25)
